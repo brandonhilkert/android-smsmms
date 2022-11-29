@@ -71,7 +71,7 @@ public abstract class MmsReceivedReceiver extends BroadcastReceiver {
 
     private static final ExecutorService RECEIVE_NOTIFICATION_EXECUTOR = Executors.newSingleThreadExecutor();
 
-    public boolean isAddressBlocked(Context context, String address) {
+    public boolean isAddressBlocked(Context context, String address, String[] recipients) {
         // Subclasses can override this to screen messages.
         return false;
     }
@@ -112,8 +112,10 @@ public abstract class MmsReceivedReceiver extends BroadcastReceiver {
                 reader.read(response, 0, nBytes);
 
                 final MmsConfig.Overridden mmsConfig = new MmsConfig.Overridden(new MmsConfig(context), null);
-                final String address = parseSenderAddressFromPdu(context, response, locationUrl, mmsConfig);
-                if (isAddressBlocked(context, address)) {
+                final String sender = parseSenderAddressFromPdu(context, response, locationUrl, mmsConfig);
+                final String[] recipients = parseRecipientsFromPdu(response, mmsConfig);
+
+                if (isAddressBlocked(context, sender, recipients)) {
                     // Delete the corresponding NotificationInd.
                     SqliteWrapper.delete(context,
                             context.getContentResolver(),
@@ -180,6 +182,21 @@ public abstract class MmsReceivedReceiver extends BroadcastReceiver {
             return null;
         }
         return pdu.getFrom().getString();
+    }
+
+    private String[] parseRecipientsFromPdu(byte[] data, MmsConfig.Overridden mmsConfig) {
+        final GenericPdu pdu = new PduParser(data, mmsConfig.getSupportMmsContentDisposition()).parse();
+        if (!(pdu instanceof RetrieveConf)) {
+            return null;
+        }
+
+        final EncodedStringValue[] encodedStringValues = ((RetrieveConf) pdu).getTo();
+        final String[] recipients = new String[encodedStringValues.length];
+        for (int i = 0; i < encodedStringValues.length; i++) {
+            String address = encodedStringValues[i].getString();
+            recipients[i] = address;
+        }
+        return recipients;
     }
 
     private void updateNotificationIndRetrieveStatus(Context context, String locationUrl, int retrieveStatus) {
